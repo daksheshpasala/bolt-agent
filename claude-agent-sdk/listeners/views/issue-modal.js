@@ -1,3 +1,5 @@
+import { sessionStore } from '../../thread-context/index.js';
+
 /**
  * Handle issue submission from the modal.
  *
@@ -14,6 +16,9 @@ export async function handleIssueSubmission({ ack, body, client, context, logger
     const values = body.view.state.values;
     const category = /** @type {string} */ (values.category_block.category_select.selected_option?.value);
     const description = /** @type {string} */ (values.description_block.description_input.value);
+
+    // Record this issue submission
+    sessionStore.recordIssue(userId, category, `Issue: ${description.substring(0, 50)}`);
 
     // Open a DM with the user
     const dm = await client.conversations.open({ users: userId });

@@ -49,12 +49,16 @@ export async function handleAppMentioned({ client, context, event, logger, say, 
     // Get conversation session
     const existingSessionId = sessionStore.getSession(channelId, threadTs);
 
+    // Record user message for insights (tech level, repeat detection, etc.)
+    sessionStore.addMessageSnippet(userId, cleanedText);
+
     // Run the agent with deps for tool access
     const deps = { client, userId, channelId, threadTs, messageTs: event.ts, userToken: context.userToken };
     const { responseText, sessionId: newSessionId } = await runCaseyAgent(
       cleanedText,
       existingSessionId ?? undefined,
       deps,
+      sessionStore,
     );
 
     // Stream response in thread with feedback buttons

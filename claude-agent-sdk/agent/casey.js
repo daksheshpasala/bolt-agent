@@ -126,13 +126,63 @@ const SLACK_MCP_URL = 'https://mcp.slack.com/mcp';
  */
 
 /**
+ * Build a personalized system prompt based on user insights.
+ * @param {string} basePrompt - The base Casey system prompt.
+ * @param {Object} userInsights - User profile insights.
+ * @param {string} [userInsights.techLevel]
+ * @param {string} [userInsights.style]
+ * @param {Array<{category: string, count: number}>} [userInsights.commonIssues]
+ * @param {string | null} [userInsights.repeatHint]
+ * @returns {string}
+ */
+function buildPersonalizedPrompt(basePrompt, userInsights = {}) {
+  let prompt = basePrompt;
+
+  // Inject tech level guidance
+  if (userInsights.techLevel === 'beginner') {
+    prompt += '\n\n## USER PROFILE: Beginner\n' +
+      'This user appears to be new to IT troubleshooting. Keep explanations very simple, ' +
+      'avoid jargon, and break steps into tiny chunks. Be extra patient and encouraging.';
+  } else if (userInsights.techLevel === 'advanced') {
+    prompt += '\n\n## USER PROFILE: Advanced\n' +
+      'This user has strong technical knowledge. You can use technical terms, skip obvious ' +
+      'steps, and offer advanced solutions. They appreciate efficiency.';
+  }
+
+  // Inject communication style guidance
+  if (userInsights.style === 'verbose') {
+    prompt += '\n\n## COMMUNICATION STYLE: Verbose\n' +
+      'This user prefers detailed explanations. Provide context, explain the "why" behind solutions, ' +
+      'and give more thorough background.';
+  }
+
+  // Inject common issue history
+  if (userInsights.commonIssues && userInsights.commonIssues.length > 0) {
+    const top3 = userInsights.commonIssues.slice(0, 3);
+    const issueList = top3.map((i) => `${i.category} (${i.count}x)`).join(', ');
+    prompt += `\n\n## USER ISSUE HISTORY\n` +
+      `This user frequently reports: ${issueList}. Keep this context in mind and offer preventative tips.`;
+  }
+
+  // Inject repeat question hint
+  if (userInsights.repeatHint) {
+    prompt += `\n\n## POSSIBLE REPEAT ISSUE\n` +
+      `This user may have asked about something similar before. Gently mention it and offer to reference ` +
+      `the old solution: "Hey, looks like you hit this before…"`;
+  }
+
+  return prompt;
+}
+
+/**
  * Run the Casey agent with the given text and optional session ID.
  * @param {string} text - The user's message text.
  * @param {string} [sessionId] - An existing session ID to resume conversation.
  * @param {CaseyDeps} [deps] - Dependencies for tools that need Slack API access.
+ * @param {import('../thread-context/store.js').SessionStore} [sessionStore] - Session store for user insights.
  * @returns {Promise<{responseText: string, sessionId: string | null}>}
  */
-export async function runCaseyAgent(text, sessionId = undefined, deps = undefined) {
+export async function runCaseyAgent(text, sessionId = undefined, deps = undefined, sessionStore = undefined) {
   // Closure-based tools that need deps for Slack API access
   const addEmojiReactionTool = tool(
     'add_emoji_reaction',
@@ -217,9 +267,26 @@ export async function runCaseyAgent(text, sessionId = undefined, deps = undefine
     allowedTools.push('mcp__slack-mcp__*');
   }
 
+  // Build personalized prompt with user insights
+  let systemPrompt = CASEY_SYSTEM_PROMPT;
+  if (sessionStore && deps?.userId) {
+    const userProfile = sessionStore.getUserProfile(deps.userId);
+    /** @type {{techLevel?: string, style?: string, commonIssues?: Array<{category:string,count:number}>, repeatHint?: string | null}} */
+    const userInsights = {};
+
+    if (userProfile) {
+      userInsights.techLevel = sessionStore.inferTechnicalLevel(deps.userId);
+      userInsights.style = sessionStore.getPreferredStyle(deps.userId);
+      userInsights.commonIssues = sessionStore.getCommonIssueTypes(deps.userId);
+      userInsights.repeatHint = sessionStore.detectRepeatQuestion(deps.userId, text);
+    }
+
+    systemPrompt = buildPersonalizedPrompt(CASEY_SYSTEM_PROMPT, userInsights);
+  }
+
   /** @type {import('@anthropic-ai/claude-agent-sdk').Options} */
   const options = {
-    systemPrompt: CASEY_SYSTEM_PROMPT,
+    systemPrompt,
     mcpServers,
     allowedTools,
     permissionMode: 'bypassPermissions',

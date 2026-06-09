@@ -86,9 +86,12 @@ export async function handleMessage({ client, context, event, logger, say, saySt
       ],
     });
 
+    // Record user message for insights
+    sessionStore.addMessageSnippet(userId, text);
+
     // Run the agent with deps for tool access
     const deps = { client, userId, channelId, threadTs, messageTs: event.ts, userToken: context.userToken };
-    const { responseText, sessionId: newSessionId } = await runCaseyAgent(text, existingSessionId ?? undefined, deps);
+    const { responseText, sessionId: newSessionId } = await runCaseyAgent(text, existingSessionId ?? undefined, deps, sessionStore);
 
     // Stream response in thread with feedback buttons
     const streamer = sayStream();
